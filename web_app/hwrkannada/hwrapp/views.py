@@ -8,7 +8,11 @@ import html
 # Import module here
 import os
 import sys
+# Get the absolute path to the project root
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../../'))
 
+# Add project root to Python path
+sys.path.insert(0, PROJECT_ROOT)
 
 rootdir = ""
 segdir = ""

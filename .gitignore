@@ -10,6 +10,7 @@
 *.jfif
 *.jfi
 
+dataset/*
 # JPEG 2000
 *.jp2
 *.j2k
