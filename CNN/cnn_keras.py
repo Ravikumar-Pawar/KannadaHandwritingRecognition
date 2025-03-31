@@ -2,141 +2,141 @@ import numpy as np
 import pickle
 import cv2
 import os
-import sys
-import glob
-import logging
 import tensorflow as tf
+from tensorflow.keras import optimizers
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, Dropout, Flatten, Conv2D, MaxPooling2D
 from tensorflow.keras.utils import to_categorical
 from tensorflow.keras.callbacks import ModelCheckpoint
-from tensorflow.keras.optimizers import Adam
-from tensorflow.keras import backend as K
 import matplotlib.pyplot as plt
+import load_images  # Ensure this module exists and is correct
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # Suppress TensorFlow warnings
 
-# Set image format
-K.set_image_data_format('channels_last')
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+# Dataset Directory
+directory = "/workspaces/KannadaHandwritingRecognition/dataset/dataset/Kannada/Hnd/Img"
 
-# Dataset directory
-DEFAULT_DIRECTORY = "/workspaces/KannadaHandwritingRecognition/dataset/dataset/Kannada/Hnd"
-directory = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_DIRECTORY
-
-if not os.path.exists(directory):
-    logging.error(f"Dataset path does not exist: {directory}")
-    sys.exit(1)
-
-logging.info(f"Using dataset directory: {directory}")
-
-def get_all_images():
-    image_paths = glob.glob(os.path.join(directory, "Img", "**", "*.png"), recursive=True)
-    if not image_paths:
-        logging.error("No PNG images found in dataset.")
-        sys.exit(1)
-    logging.info(f"Found {len(image_paths)} PNG images.")
-    return image_paths
-
+# Get Image Dimensions
 def get_image_size():
-    image_paths = get_all_images()
-    img = cv2.imread(image_paths[0], cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        logging.error("Failed to read sample image.")
-        sys.exit(1)
-    logging.info(f"Sample image size: {img.shape}")
+    img_path = os.path.join(directory, '1', '1.png')
+    
+    if not os.path.exists(img_path):
+        print(f"[ERROR] Sample image '{img_path}' not found. Check dataset path!")
+        exit(1)
+    
+    img = cv2.imread(img_path, 0)
+    print(f"[INFO] Image dimensions: {img.shape}")
     return img.shape
 
+# Get Number of Classes
 def get_num_of_classes():
-    class_dirs = [d for d in os.listdir(os.path.join(directory, "Img")) if os.path.isdir(os.path.join(directory, "Img", d))]
-    logging.info(f"Number of classes found: {len(class_dirs)}")
-    return len(class_dirs)
+    num_classes = len(os.listdir(directory))
+    print(f"[INFO] Number of classes: {num_classes}")
+    return num_classes
 
-image_x, image_y = get_image_size()
-
+# Model Architecture
 def cnn_model():
-    logging.info("Building CNN model...")
     num_of_classes = get_num_of_classes()
     model = Sequential([
         Conv2D(52, (5, 5), input_shape=(image_x, image_y, 1), activation='tanh'),
         MaxPooling2D(pool_size=(2, 2), strides=(2, 2)),
+        tf.keras.layers.Lambda(lambda x: tf.nn.local_response_normalization(x)),
         Conv2D(64, (5, 5), activation='tanh'),
         MaxPooling2D(pool_size=(5, 5), strides=(5, 5)),
         Flatten(),
         Dropout(0.5),
         Dense(num_of_classes, activation='softmax')
     ])
-    
-    model.compile(loss='categorical_crossentropy', optimizer=Adam(learning_rate=0.001), metrics=['accuracy'])
-    logging.info("Model compiled successfully.")
-    checkpoint = ModelCheckpoint("cnn_model.h5", monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
-    return model, [checkpoint]
 
-def load_dataset():
-    logging.info("Loading dataset...")
-    image_paths = get_all_images()
-    labels = []
-    images = []
+    model.compile(loss='categorical_crossentropy',
+                  optimizer=optimizers.Adam(learning_rate=0.001),
+                  metrics=['accuracy'])
 
-    for img_path in image_paths:
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        if img is not None:
-            images.append(cv2.resize(img, (image_x, image_y)))
-            label = int(img_path.split("/")[-2].replace("Sample", "")) - 1
-            labels.append(label)
+    filepath = "cnn_model.h5"
+    checkpoint1 = ModelCheckpoint(filepath, monitor='val_accuracy', verbose=1, save_best_only=True, mode='max')
+    return model, [checkpoint1]
 
-    images = np.array(images).reshape(-1, image_x, image_y, 1)
-    labels = np.array(labels)
-
-    with open("train_images.pkl", "wb") as f:
-        pickle.dump(images, f)
-    with open("train_labels.pkl", "wb") as f:
-        pickle.dump(labels, f)
-
-    logging.info(f"Dataset saved: {len(images)} images, {len(labels)} labels.")
-
+# Train Model
 def train():
-    logging.info("Loading training data...")
-    if not os.path.exists("train_images.pkl") or not os.path.exists("train_labels.pkl"):
-        logging.error("Training data not found. Run preprocessing first.")
-        sys.exit(1)
+    print("[INFO] Loading dataset from pickle files...")
 
-    with open("train_images.pkl", "rb") as f:
+    # Check if pickle files exist
+    for file in ["train_images", "train_labels", "test_images", "test_labels"]:
+        if not os.path.exists(file):
+            print(f"[ERROR] Missing pickle file: {file}. Run `load_images.create_pickle(directory)` first.")
+            exit(1)
+
+    # Load Pickle Data
+    with open("train_images", "rb") as f:
         train_images = np.array(pickle.load(f))
-    with open("train_labels.pkl", "rb") as f:
+    with open("train_labels", "rb") as f:
         train_labels = np.array(pickle.load(f), dtype=np.int32)
+    with open("test_images", "rb") as f:
+        test_images = np.array(pickle.load(f))
+    with open("test_labels", "rb") as f:
+        test_labels = np.array(pickle.load(f), dtype=np.int32)
 
-    train_images = train_images.astype("float32") / 255.0
+    print(f"[INFO] Training Images: {train_images.shape}, Labels: {train_labels.shape}")
+    print(f"[INFO] Test Images: {test_images.shape}, Labels: {test_labels.shape}")
+
+    # Reshape for CNN
+    train_images = np.reshape(train_images, (train_images.shape[0], image_x, image_y, 1))
+    test_images = np.reshape(test_images, (test_images.shape[0], image_x, image_y, 1))
+
+    # Convert Labels to Categorical
     train_labels = to_categorical(train_labels)
+    test_labels = to_categorical(test_labels)
 
-    logging.info(f"Training dataset: {train_images.shape}, Labels: {train_labels.shape}")
+    print(f"[INFO] Reshaped Train Images: {train_images.shape}")
+    print(f"[INFO] Reshaped Test Images: {test_images.shape}")
 
+    # Get Model
     model, callbacks_list = cnn_model()
-    logging.info("Starting training...")
-    history = model.fit(train_images, train_labels, validation_split=0.2, epochs=100, batch_size=100, callbacks=callbacks_list)
-    
-    logging.info("Saving training plots...")
+
+    print("[INFO] Starting training...")
+    history = model.fit(
+        train_images, train_labels,
+        validation_data=(test_images, test_labels),
+        epochs=50,  # Reduced to 50
+        batch_size=32,  # Reduced batch size
+        callbacks=callbacks_list
+    )
+
+    # Evaluate Model
+    scores = model.evaluate(test_images, test_labels, verbose=0)
+    print(f"[INFO] CNN Test Accuracy: {scores[1] * 100:.2f}%")
+
+    # Plot Accuracy
     plt.plot(history.history['accuracy'])
     plt.plot(history.history['val_accuracy'])
     plt.title('Model Accuracy')
     plt.ylabel('Accuracy')
     plt.xlabel('Epoch')
-    plt.legend(['Train', 'Validation'], loc='upper left')
-    plt.savefig('accuracy.png')
+    plt.legend(['Train', 'Test'], loc='upper left')
+    plt.savefig('acc.png')
     plt.clf()
 
+    # Plot Loss
     plt.plot(history.history['loss'])
     plt.plot(history.history['val_loss'])
     plt.title('Model Loss')
     plt.ylabel('Loss')
     plt.xlabel('Epoch')
-    plt.legend(['Train', 'Validation'], loc='upper left')
+    plt.legend(['Train', 'Test'], loc='upper left')
     plt.savefig('loss.png')
-    
-    logging.info("Training complete.")
 
-load_dataset()
+    print("[INFO] Training complete. Model saved as 'cnn_model.h5'.")
+
+# Run Dataset Processing
+print("[INFO] Creating dataset pickle files...")
+load_images.create_pickle(directory)
+
+# Get Image Size
+image_x, image_y = get_image_size()
+
+# Start Training
 train()
-K.clear_session()
-logging.info("Finished.")
+
+# Clear TensorFlow Session
+tf.keras.backend.clear_session()
+print("[INFO] Session cleared. Process complete!")
